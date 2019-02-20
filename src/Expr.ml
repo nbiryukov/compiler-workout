@@ -56,11 +56,11 @@ let to_bool i = i != 0
 
 let operator op left right =
   match op with
-  | "+" -> ( + )
-  | "-" -> ( - )
-  | "*" -> ( * )
-  | "/" -> ( / )
-  | "%" -> ( mod )
+  | "+" -> left + right
+  | "-" -> left - right
+  | "*" -> left * right
+  | "/" -> left / right
+  | "%" -> left mod right
   | "<" -> to_int (left < right)
   | ">" -> to_int (left > right)
   | "<=" -> to_int (left <= right)
@@ -69,6 +69,7 @@ let operator op left right =
   | "!=" -> to_int (left != right)
   | "&&" -> to_int ((to_bool left) && (to_bool right))
   | "!!" -> to_int ((to_bool left) || (to_bool right))
+  | _    -> failwith "Fail with operation"
 
 
 let rec eval s expr = match expr with
