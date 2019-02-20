@@ -54,7 +54,7 @@ let _ =
 let to_int b = if b then 1 else 0
 let to_bool i = i != 0
 
-let operator op =
+let operator op left right =
   match op with
   | "+" -> ( + )
   | "-" -> ( - )
