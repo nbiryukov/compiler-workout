@@ -108,5 +108,5 @@ type t = Stmt.t
 
    Takes a program and its input stream, and returns the output stream
 *)
-let rec i p =
+let rec eval i p =
   let _, _, o = Stmt.eval (Expr.empty, i, []) p in o
