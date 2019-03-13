@@ -79,21 +79,22 @@ module Expr =
 
     ostap (
       expr:
-		!(Ostap.Util.expr
-			(fun x -> x)
-			(Array.map (fun (a, ops) -> a, List.map do_Bin ops)
-				[|
-				`Lefta, ["!!"];
-                  		`Lefta, ["&&"];
-                  		`Nona , ["=="; "!="; "<="; ">="; "<"; ">"];
-                  		`Lefta, ["+"; "-"];
-                  		`Lefta, ["*"; "/"; "%"];
-				|]
-			)
-			primary
-			);
-  primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr -")"
-  
+      !(Ostap.Util.expr
+        (fun x -> x)
+        (Array.map (fun (a, ops) -> a, List.map do_Bin ops)
+          [|
+          `Lefta, ["!!"];
+                        `Lefta, ["&&"];
+                        `Nona , ["=="; "!="; "<="; ">="; "<"; ">"];
+                        `Lefta, ["+"; "-"];
+                        `Lefta, ["*"; "/"; "%"];
+          |]
+        )
+        primary
+        );
+      primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr -")"
+    )
+
   end
 
 (* Simple statements: syntax and sematics *)
