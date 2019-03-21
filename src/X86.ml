@@ -80,9 +80,7 @@ let show instr =
 open SM
 
 (* Symbolic stack machine evaluator
-
      compile : env -> prg -> env * instr list
-
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
@@ -103,10 +101,15 @@ let rec compile env code =
 				env, [Mov (M (env#loc x), eax); Mov (eax, s)]
 			| ST x ->
 				let s, env = (env#global x)#pop in
-        env, [Mov (s, eax); Mov (eax, M (env#loc x))]
-        | READ ->
+				env, [Mov (s, eax); Mov (eax, M (env#loc x))]
+			| READ ->
 				let s, env = env#allocate in
 				env, [Call "Lread"; Mov (eax, s)]
+      | LABEL l     -> env, [Label l]
+      | JMP l       -> env, [Jmp l]
+      | CJMP (b, l) ->
+         let s, env = env#pop in
+         env, [Binop ("cmp", L 0, s); CJmp (b, l)]
 			| BINOP op ->
 				let right, left, env = env#pop2 in
   			let result, env = env#allocate in
@@ -180,7 +183,6 @@ let rec compile env code =
 		in let env, asmcode' = compile env code' in
 		env, asmcode @ asmcode'
 
-(* A set of strings *)           
 module S = Set.Make (String)
 
 (* Environment implementation *)
@@ -264,4 +266,3 @@ let build stmt name =
   close_out outf;
   let inc = try Sys.getenv "RC_RUNTIME" with _ -> "../runtime" in
   Sys.command (Printf.sprintf "gcc -m32 -o %s %s/runtime.o %s.s" name inc name)
- 
