@@ -1,6 +1,5 @@
 open GT
 open Language
-open List
 
 (* The type for the stack machine instructions *)
 @type insn =
@@ -23,12 +22,12 @@ type prg = insn list
 type config = int list * Stmt.config
 
 (* Stack machine interpreter
-
      val eval : env -> config -> prg -> config
-
    Takes an environment, a configuration and a program, and returns a configuration as a result. The
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
-*)                         
+*)
+
+(* Hard expression for left-folding - desicion to make rec function *)
 let rec eval env ((stack, ((state, input, output) as c)) as config) = function
 | [] -> config
 | instruction :: rest_instr ->
@@ -73,9 +72,7 @@ let rec eval env ((stack, ((state, input, output) as c)) as config) = function
         end
 
 (* Top-level evaluation
-
      val run : prg -> int list -> int list
-
    Takes a program, an input stream, and returns an output stream this program calculates
 *)
 let run p i =
@@ -89,9 +86,7 @@ let run p i =
   let (_, (_, _, o)) = eval (object method labeled l = M.find l m end) ([], (Expr.empty, i, [])) p in o
 
 (* Stack machine compiler
-
      val compile : Language.Stmt.t -> prg
-
    Takes a program in the source language and returns an equivalent program for the
    stack machine
 *)
