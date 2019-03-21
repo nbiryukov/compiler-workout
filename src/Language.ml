@@ -2,10 +2,11 @@
    The library provides "@type ..." syntax extension and plugins like show, etc.
 *)
 open GT
+open List
 
 (* Opening a library for combinator-based syntax analysis *)
 open Ostap.Combinators
-       
+
 (* Simple expressions: syntax and semantics *)
 module Expr =
   struct
@@ -25,14 +26,13 @@ module Expr =
         +, -                 --- addition, subtraction
         *, /, %              --- multiplication, division, reminder
     *)
-                                                            
     (* State: a partial map from variables to integer values. *)
-    type state = string -> int 
+    type state = string -> int
 
     (* Empty state: maps every variable into nothing. *)
     let empty = fun x -> failwith (Printf.sprintf "Undefined variable %s" x)
 
-    (* Update: non-destructively "modifies" the state s by binding the variable x 
+    (* Update: non-destructively "modifies" the state s by binding the variable x
       to value v and returns the new state.
     *)
     let update x v s = fun y -> if x = y then v else s y
@@ -41,23 +41,62 @@ module Expr =
 
           val eval : state -> t -> int
  
-       Takes a state and an expression, and returns the value of the expression in 
+       Takes a state and an expression, and returns the value of the expression in
        the given state.
     *)                                                       
-    let eval st expr = failwith "Not yet implemented"
+    let boolToInt b = if b then 1 else 0
+
+    let intToBool i = i != 0
+
+    let evalOperation op left right = 
+      match op with
+      | "+" -> left + right
+      | "-" -> left - right
+      | "*" -> left * right
+      | "/" -> left / right
+      | "%" -> left mod right
+      | "==" -> boolToInt(left == right)
+      | "!=" -> boolToInt(left != right)
+      | "<=" -> boolToInt(left <= right)
+      | "<"  -> boolToInt(left < right)
+      | ">=" -> boolToInt(left >= right)
+      | ">"  -> boolToInt(left > right)
+      | "&&" -> boolToInt((intToBool left) && (intToBool right))
+      | "!!" -> boolToInt((intToBool left) !! (intToBool right))
+      | _    -> failwith (Printf.sprintf "Unknown operator");;
+
+      let rec eval state exp =
+        match exp with
+        | Const v -> v
+        | Var x -> state x
+        | Binop (op, left, right) -> evalOperation op (eval state left) (eval state right)
 
     (* Expression parser. You can use the following terminals:
 
          IDENT   --- a non-empty identifier a-zA-Z[a-zA-Z0-9_]* as a string
          DECIMAL --- a decimal constant [0-9]+ as a string
-                                                                                                                  
     *)
-    ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+    let binOp op = ostap(- $(op)), (fun x y -> Binop (op, x, y))
+    ostap (
+      expr:
+          !(Ostap.Util.expr
+                  (fun x -> x)  (* identity function *)
+                  (Array.map (fun (asc, ops) -> asc, List.map binOp ops)
+                        [|
+                            `Lefta, ["!!"];
+                            `Lefta, ["&&"];
+                            `Nona , ["=="; "!="];
+                            `Nona , ["<="; "<"; ">="; ">"];
+                            `Lefta, ["+"; "-"];
+                            `Lefta, ["*"; "/"; "%"];
+                        |]
+                    )
+                  primary
+            );
+      primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr -")" 
     )
-    
   end
-                    
+
 (* Simple statements: syntax and sematics *)
 module Stmt =
   struct
@@ -67,14 +106,13 @@ module Stmt =
     (* read into the variable           *) | Read   of string
     (* write the value of an expression *) | Write  of Expr.t
     (* assignment                       *) | Assign of string * Expr.t
-    (* composition                      *) | Seq    of t * t 
+    (* composition                      *) | Seq    of t * then
     (* empty statement                  *) | Skip
     (* conditional                      *) | If     of Expr.t * t * t
     (* loop with a pre-condition        *) | While  of Expr.t * t
     (* loop with a post-condition       *) (* add yourself *)  with show
-                                                                    
     (* The type of configuration: a state, an input stream, an output stream *)
-    type config = Expr.state * int list * int list 
+    type config = Expr.state * int list * int list
 
     (* Statement evaluator
 
@@ -82,19 +120,26 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let rec eval conf stmt = failwith "Not yet implemented"
+    let rec eval (s, i, o) p = match p with
+    		| Read variable_name  -> (Expr.update variable_name  (hd i) s, tl i, o)
+    		| Write expression   -> (s, i, o @ [Expr.eval s expression])
+    		| Assign (variable_name, expression  ) -> (Expr.update variable_name (Expr.eval s expression ) s, i, o)
+    		| Seq (e1, e2)  -> eval (eval (s, i, o) e1) e2;;  
                                
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not yet implemented"}
+      stmt: x:IDENT ":=" e:!(Expr.expr) {Assign(x, e)}
+            | "read" "(" x:IDENT ")" {Read x}
+            | "write" "(" e:!(Expr.expr) ")" {Write e};
+
+      parse: s:stmt ";" rest:parse {Seq(s, rest)} | stmt
     )
-      
   end
 
 (* The top-level definitions *)
 
 (* The top-level syntax category is statement *)
-type t = Stmt.t    
+type t = Stmt.t
 
 (* Top-level evaluator
 
@@ -106,4 +151,4 @@ let eval p i =
   let _, _, o = Stmt.eval (Expr.empty, i, []) p in o
 
 (* Top-level parser *)
-let parse = Stmt.parse                                                     
+let parse = Stmt.parse
