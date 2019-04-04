@@ -37,78 +37,67 @@ module Expr =
     *)
     let update x v s = fun y -> if x = y then v else s y
 
-    (* Expression evaluator
-          val eval : state -> t -> int
-       Takes a state and an expression, and returns the value of the expression in
-       the given state.
-    *)
+    (* Some helping code for further work:
+    boolToInt converts boolean b to integer
+    intToBool converts integer i to boolean
+    *)  
     let boolToInt b = if b then 1 else 0
-
     let intToBool i = i != 0
 
-    let fun1 op = fun x1 x2 -> boolToInt(op x1 x2)
-    let fun2 op = fun x1 x2 -> boolToInt (op (intToBool x1) (intToBool x2))
 
-    let evalOperation op =
-       match op with
-
-       (* These opearators were defined in Embedding.ml *)
-       | "+"  -> ( + )
-       | "-"  -> ( - )
-       | "*"  -> ( * )
-       | "/"  -> ( / )
-       | "%"  -> ( mod )
-
-       (* According to 01.pdf result of following operations is converted to int *)
-       | "==" -> fun1 ( == )
-       | "!=" -> fun1 ( != )
-       | "<=" -> fun1 ( <= )
-       | "<"  -> fun1 ( <  )
-       | ">=" -> fun1 ( >= )
-       | ">"  -> fun1 ( >  )
-
-       (* According to 01.pdf arguments of following operations are converted to bool *)
-       | "&&" -> fun2 ( && )
-       | "!!" -> fun2 ( || )
-
-       (* Unknown operator *)
-       | _    -> failwith (Printf.sprintf "Unknown operator");;
-
-    let rec eval state exp =
-       match exp with
-       | Const v -> v
-       | Var x -> state x
-       | Binop (op, x1, x2) -> evalOperation op (eval state x1) (eval state x2)
-
+    (* Possible operations *)
+    let operation oper leftExpr rightExpr = match oper with
+        |"!!" -> boolToInt (( || ) (intToBool leftExpr) (intToBool rightExpr))
+        |"&&" -> boolToInt (( && ) (intToBool leftExpr) (intToBool rightExpr))
+        |"==" -> boolToInt (( == ) leftExpr rightExpr)
+        |"!=" -> boolToInt (( != ) leftExpr rightExpr)
+        |"<=" -> boolToInt (( <= ) leftExpr rightExpr)
+        |"<" -> boolToInt (( <  ) leftExpr rightExpr)
+        |">=" -> boolToInt (( >= ) leftExpr rightExpr)
+        |">" -> boolToInt (( >  ) leftExpr rightExpr)
+        |"+" -> ( +  ) leftExpr rightExpr
+        |"-" -> ( -  ) leftExpr rightExpr
+        |"*" -> ( *  ) leftExpr rightExpr
+        |"/" -> ( /  ) leftExpr rightExpr
+        |"%" -> ( mod ) leftExpr rightExpr
+    (* Expression evaluator
+          val eval : state -> t -> int
+ 
+       Takes a state and an expression, and returns the value of the expression in 
+       the given state.
+    *)                                                       
+    let rec eval state expr = match expr with
+    |Const cName -> cName
+    |Var varName -> state varName
+    |Binop (oper, leftExpr, rightExpr) -> 
+        operation oper (eval state leftExpr) (eval state rightExpr)
 
     (* Expression parser. You can use the following terminals:
          IDENT   --- a non-empty identifier a-zA-Z[a-zA-Z0-9_]* as a string
          DECIMAL --- a decimal constant [0-9]+ as a string
     *)
-    (* Auxiliary function for binary operation performance - instead of function repeat bellow *)
-    let parseBinOp op = ostap(- $(op)), (fun x y -> Binop (op, x, y))
+    let do_Bin oper =  ostap(- $(oper)), (fun x y -> Binop (oper, x, y))
+
     ostap (
-        parse: expr;
-        expr:
-      	    !(Ostap.Util.expr
-      		    (fun x -> x)  (* identity function *)
-      		    (Array.map (fun (asc, ops) -> asc, List.map parseBinOp ops)
-                    [|
-                        `Lefta, ["!!"];
-                        `Lefta, ["&&"];
-                        `Nona , ["=="; "!="];
-                        `Nona , ["<="; "<"; ">="; ">"];
-                        `Lefta, ["+"; "-"];
-                        `Lefta, ["*"; "/"; "%"];
-                    |]
-                )
-      		    primary
-      		);
-      	primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr -")"  (* simpiest expression - {var, const, (var), (const)}*)
+          expr:
+        !(Ostap.Util.expr
+            (fun x -> x)
+            (Array.map (fun (a, ops) -> a, List.map do_Bin ops)
+                [|
+                    `Lefta, ["!!"];
+                    `Lefta, ["&&"];
+                    `Nona , ["=="; "!="; "<="; ">="; "<"; ">"];
+                    `Lefta, ["+"; "-"];
+                    `Lefta, ["*"; "/"; "%"];
+                |]
+            )
+            primary
+            );
+        primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr -")"
     )
 
   end
-
+                    
 (* Simple statements: syntax and sematics *)
 module Stmt =
   struct
@@ -122,7 +111,7 @@ module Stmt =
     (* empty statement                  *) | Skip
     (* conditional                      *) | If     of Expr.t * t * t
     (* loop with a pre-condition        *) | While  of Expr.t * t
-    (* loop with a post-condition       *) | RepeatUntil of Expr.t * t with show
+    (* loop with a post-condition       *) | RepeatUntil    of t * Expr.t with show
 
     (* The type of configuration: a state, an input stream, an output stream *)
     type config = Expr.state * int list * int list
@@ -131,62 +120,65 @@ module Stmt =
          val eval : config -> t -> config
        Takes a configuration and a statement, and returns another configuration
     *)
-    let rec eval config statement =
-      let (state, input, output) = config in
-      match statement with
-        (* <s, i, o> --> <s[ x<-[|e|]s ], i, o> *)
-        | Assign (var_name, expression) -> (Expr.update var_name (Expr.eval state expression) state, input, output)
-        (* <s, z::i, o> --> <s[x<-z], i, o> *)
-        | Read var_name -> (match input with  (* check for existing of tail - no error check*)
-          | head::tail -> (Expr.update var_name head state, tail, output))
-        (* <s, i, o> --> <s, i, o @ [ [|e|]s ]> *)
-        | Write expression -> (state, input, output @ [Expr.eval state expression])
-        (* C1 -S1-> C' -S2-> C2*)
-        | Seq (state1, state2) -> eval (eval config state1) state2
-        | Skip -> config
-        | If (e, s1, s2) -> eval config (if Expr.eval state e != 0 then s1 else s2)
-        | While (e, s) ->
-          if Expr.eval state e != 0 then eval (eval config s) statement else config
-        | RepeatUntil (e, s) ->
-          let ((state', _, _) as config') = eval config s in
-          if Expr.eval state' e = 0 then eval config' statement else config';;
-
-    (* Statement parser - more complex structure than previous*)
+    let rec eval conf stmt: config =
+        let (s, i, o) = conf in
+        match stmt with
+            | Read x -> (match i with
+                | z :: i_rest -> (Expr.update x z s, i_rest, o)
+                | _           -> failwith "Input read fail")
+            | Write   e             -> (s, i, o @ [Expr.eval s e])
+            | Assign (x, e)         -> (Expr.update x (Expr.eval s e) s, i, o)
+            | Seq    (s1, s2) -> eval (eval conf s1) s2
+            | Skip                              -> (s, i, o)
+            | If (e, thenStmt, elseStmt)        -> eval (s, i, o) (if Expr.intToBool (Expr.eval s e) then thenStmt else elseStmt)
+            | While (e, wStmt)                  -> if Expr.intToBool (Expr.eval s e) then eval (eval (s, i, o) wStmt) stmt else (s, i, o)
+            | RepeatUntil (ruStmt, e)           -> let (sNew, iNew, oNew) = eval (s, i, o) ruStmt in
+            if not (Expr.intToBool (Expr.eval sNew e)) then eval (sNew, iNew, oNew) stmt else (sNew, iNew, oNew);;
+                               
+    (* Statement parser *)
     ostap (
-      parse  : seq | stmt;
-      seq    : s1:stmt -";" s2:parse { Seq(s1, s2) };
-      stmt   : read | write | assign | skip |
-               if' | for' | while' | repeat';
-      read   : %"read" -"(" x:IDENT -")" { Read x };
-      write  : %"write" -"(" e:!(Expr.parse) -")" { Write e };
-      assign : x:IDENT -":=" e:!(Expr.parse) { Assign (x, e) };
-      skip   : %"skip" { Skip };
-      if'    : %"if" e:!(Expr.parse)
-               %"then" s1:parse
-                 elif' :(%"elif" !(Expr.parse) %"then" parse)*  (* Multiple 'elif' is allowed *)
-                 else' :(%"else" parse)? %"fi"                  (* Contiditional expression *)
-                   {
-                     let else'' = match else' with
-                       | Some t -> t
-                       | None -> Skip
-                     in
-                     let else''' = List.fold_right (fun (e', t') t -> If (e', t', t)) elif' else'' in
-                     If (e, s1, else''')
-                   };
-      for'   : %"for" s1:parse "," e:!(Expr.parse) ","
-               s2:parse %"do" s3:parse %"od" { Seq (s1, While (e, Seq (s3, s2))) };
-      while' : %"while" e:!(Expr.parse)
-               %"do" s:parse %"od" { While (e, s) };
-      repeat': %"repeat" s:parse %"until"
-                e:!(Expr.parse) { RepeatUntil (e, s) }
+      simple:
+        "read" "(" x:IDENT ")"         {Read x}
+        | "write" "(" e:!(Expr.expr) ")" {Write e}
+        | x:IDENT ":=" e:!(Expr.expr)    {Assign (x, e)};
+      ifStmt:
+        "if" e:!(Expr.expr) "then" thenBody:parse
+      elifBranches: (%"elif" elifE:!(Expr.expr) %"then" elifBody:!(parse))*
+      elseBranch: (%"else" elseBody:!(parse))?
+        "fi" {
+            let elseBranch' = match elseBranch with
+                | Some x -> x
+                | None   -> Skip in
+                    let expandedElseBody = List.fold_right (fun (e', body') else' -> If (e', body', else')) elifBranches elseBranch' in
+                    If (e, thenBody, expandedElseBody)
+             };
+      whileStmt:
+        "while" e:!(Expr.expr) "do" body:parse "od" {While (e, body)};
+      forStmt:
+        "for" initStmt:stmt "," whileCond:!(Expr.expr) "," forStmt:stmt
+        "do" body:parse "od" {Seq (initStmt, While (whileCond, Seq (body, forStmt)))};
+      repeatUntilStmt:
+        "repeat" body:parse "until" e:!(Expr.expr) {RepeatUntil (body, e)};
+      control:
+        ifStmt
+        | whileStmt
+        | forStmt
+        | repeatUntilStmt
+        | "skip" {Skip};
+      stmt:
+        simple
+        | control;
+      parse:
+        stmt1:stmt ";" rest:parse {Seq (stmt1, rest)}
+        | stmt
     )
-
+      
   end
 
 (* The top-level definitions *)
 
 (* The top-level syntax category is statement *)
-type t = Stmt.t
+type t = Stmt.t    
 
 (* Top-level evaluator
      eval : t -> int list -> int list
@@ -196,4 +188,4 @@ let eval p i =
   let _, _, o = Stmt.eval (Expr.empty, i, []) p in o
 
 (* Top-level parser *)
-let parse = Stmt.parse
+let parse = Stmt.parse                
