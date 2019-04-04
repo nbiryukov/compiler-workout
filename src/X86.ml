@@ -79,110 +79,7 @@ let show instr =
 (* Opening stack machine to use instructions without fully qualified names *)
 open SM
 
-(* Symbolic stack machine evaluator
-     compile : env -> prg -> env * instr list
-   Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
-   of x86 instructions
-*)
-let rec compile env code =
-	match code with
-	| [] -> env, []
-	| instr::code' ->
-		let env, asmcode =
-			match instr with
-			| CONST n ->
-				let s, env = env#allocate in
-				env, [Mov (L n, s)]
-			| WRITE ->
-				let s, env = env#pop in
-				env, [Push s; Call "Lwrite"; Pop eax]
-			| LD x ->
-				let s, env = (env#global x)#allocate in
-				env, [Mov (M (env#loc x), eax); Mov (eax, s)]
-			| ST x ->
-				let s, env = (env#global x)#pop in
-				env, [Mov (s, eax); Mov (eax, M (env#loc x))]
-			| READ ->
-				let s, env = env#allocate in
-				env, [Call "Lread"; Mov (eax, s)]
-      | LABEL l     -> env, [Label l]
-      | JMP l       -> env, [Jmp l]
-      | CJMP (b, l) ->
-         let s, env = env#pop in
-         env, [Binop ("cmp", L 0, s); CJmp (b, l)]
-			| BINOP op ->
-				let right, left, env = env#pop2 in
-  			let result, env = env#allocate in
-				env, match op with
-		    | "+" | "-" | "*" ->
-					[Mov (left, eax); Binop (op, right, eax); Mov (eax, left)]
-	      | "/" ->
-					[Mov (left, eax); Cltd; IDiv right; Mov (eax, result)]
-	      | "%" ->
-				 	[Mov (left, eax); Cltd; IDiv right; Mov (edx, result)]
-  			| "&&" | "!!" ->
-					[
-            Binop ("^", eax, eax);
-  			    Binop ("^", edx, edx);
-            Binop ("cmp", L 0, left);
-            Set ("nz", "%al");
-            Binop ("cmp", L 0, right);
-            Set ("nz", "%dl");
-            Binop (op, eax, edx);
-            Mov (edx, result)
-					]
-  			| ">" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("g", "%al");
-            Mov (eax, result)
-          ]
-  			| ">=" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("ge", "%al");
-            Mov (eax, result)
-          ]
-  			| "<" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("l", "%al");
-            Mov (eax, result)
-          ]
-  			| "<=" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("le", "%al");
-            Mov (eax, result)
-          ]
-  			| "==" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("e", "%al");
-            Mov (eax, result)
-          ]
-  			| "!=" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("ne", "%al");
-            Mov (eax, result)
-          ]
-  			| _ -> failwith("Unknown operatorion: " ^ op)
-		in let env, asmcode' = compile env code' in
-		env, asmcode @ asmcode'
-
+(* A set of strings *)
 module S = Set.Make (String)
 
 (* Environment implementation *)
@@ -227,6 +124,73 @@ class env =
     (* gets all global variables *)
     method globals = S.elements globals
   end
+
+ (* Symbolic stack machine evaluator
+     compile : env -> prg -> env * instr list
+   Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
+   of x86 instructions
+*)
+
+let operation_name op = match op with
+  | "<"  -> "l"
+  | "<=" -> "le"
+  | ">"  -> "g"
+  | ">=" -> "ge"
+  | "==" -> "e"
+  | "!=" -> "ne"
+  | _    -> failwith ("Unknown bool operator")
+
+let rec compile env = function
+  | []             -> env, []
+  | instr :: code' ->
+    let env, asm = 
+      match instr with
+      | CONST n  -> 
+        let s, env = env#allocate in
+        env, [Mov (L n, s)]
+      | READ     ->
+        let s, env = env#allocate in
+        env, [Call "Lread"; Mov (eax, s)]
+      | WRITE    ->
+        let s, env = env#pop in
+        env, [Push s; Call "Lwrite"; Pop eax]
+      | LD x     ->
+        let s, env = (env#global x)#allocate in
+        env, [Mov (M ("global_" ^ x), eax); Mov (eax, s)]
+      | ST x     ->
+        let s, env = (env#global x)#pop in
+        env, [Mov (s, eax); Mov (eax, M ("global_" ^ x))]
+      | BINOP op -> (
+        let y, x, env = env#pop2 in
+        let s, env = env#allocate in
+        match op with
+        | "+" | "-" | "*" -> env, [Mov (x, eax); Binop (op, y, eax); Mov (eax, s)]
+        | "/"             -> env, [Mov (x, eax); Cltd; IDiv y; Mov (eax, s)]
+        | "%"             -> env, [Mov (x, eax); Cltd; IDiv y; Mov (edx, s)]
+        | "<" | "<=" | ">" | ">=" | "==" | "!=" -> env, [
+                                                     Mov (x, edx);
+                                                     Binop ("^", eax, eax); 
+                                                     Binop ("cmp", y, edx);
+                                                     Set (operation_name op, "%al");
+                                                     Mov (eax, s) 
+                                                   ]
+        | "!!" | "&&" -> env, [
+                           Binop ("^", eax, eax);
+                           Binop ("^", edx, edx);
+                           Binop ("cmp", L 0, x);
+                           Set ("ne", "%al");
+                           Binop ("cmp", L 0, y);
+                           Set ("ne", "%dl");
+                           Binop (op, eax, edx);
+                           Mov (edx, s)
+                         ])
+      | LABEL l  -> env, [Label l]
+      | JMP l    -> env, [Jmp l]
+      | CJMP (znz, l) -> let h, env = env#pop in env, [Binop ("cmp", L 0, h); CJmp (znz, l)]
+    in
+    let env, asm' = compile env code' in
+    env, asm @ asm'
+
 
 (* Compiles a unit: generates x86 machine code for the stack program and surrounds it
    with function prologue/epilogue
