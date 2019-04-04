@@ -55,10 +55,10 @@ module Expr =
         +, -                 --- addition, subtraction
         *, /, %              --- multiplication, division, reminder
     *)
-      
+    (* Update: non-destructively "modifies" the state s by binding the variable x to value v and returns the new state.
+    *)
     let update x v s = fun y -> if x = y then v else s y
     (* Expression evaluator
-
           val eval : state -> t -> int
  
        Takes a state and an expression, and returns the value of the expression in 
@@ -91,27 +91,26 @@ module Expr =
       | Binop (op, x, y) -> to_func op (eval st x) (eval st y)
 
     (* Expression parser. You can use the following terminals:
-
          IDENT   --- a non-empty identifier a-zA-Z[a-zA-Z0-9_]* as a string
          DECIMAL --- a decimal constant [0-9]+ as a string
                                                                                                                   
     *)
-    ostap (                                  
+    ostap (
       parse:
       !(Ostap.Util.expr
              (fun x -> x)
-	     (Array.map (fun (a, s) -> a,
+         (Array.map (fun (a, s) -> a,
                            List.map  (fun s -> ostap(- $(s)), (fun x y -> Binop (s, x, y))) s
                         )
               [|
-    `Lefta, ["!!"];
-		`Lefta, ["&&"];
-		`Nona , ["=="; "!="; "<="; "<"; ">="; ">"];
-		`Lefta, ["+" ; "-"];
-		`Lefta, ["*" ; "/"; "%"];
+        `Lefta, ["!!"];
+        `Lefta, ["&&"];
+        `Nona , ["=="; "!="; "<="; "<"; ">="; ">"];
+        `Lefta, ["+" ; "-"];
+        `Lefta, ["*" ; "/"; "%"];
               |]
-	     )
-	     primary);
+         )
+         primary);
       
       primary:
         n:DECIMAL {Const n}
@@ -141,46 +140,41 @@ module Stmt =
     type config = State.t * int list * int list 
 
     (* Statement evaluator
-
          val eval : env -> config -> t -> config
-
        Takes an environment, a configuration and a statement, and returns another configuration. The 
        environment supplies the following method
-
            method definition : string -> (string list, string list, t)
-
        which returns a list of formal parameters and a body for given definition
     *)
     let rec eval env (s, i, o) t =
-      match t with
-          | Read x -> (match i with
-              | z :: i_rest -> (State.update x z s, i_rest, o)
-              | _           -> failwith "Input read fail")
-          | Write   e             -> (s, i, o @ [Expr.eval s e])
-          | Assign (x, e)         -> (State.update x (Expr.eval s e) s, i, o)
-          | Seq    (s1, s2) -> 
-              let stmt = eval env (s, i, o) s1
-              in eval env stmt s2
-          | Skip            -> (s, i, o)
-          | If (e, thenStmt, elseStmt) ->
-              if (Expr.eval s e) != 0 then eval env (s, i, o) thenStmt else eval env (s, i, o) elseStmt
-          | While (e, wStmt)  ->
-              let r = Expr.eval s e in
-              if r != 0 then eval env (eval env (s, i, o) wStmt) (While (e, wStmt)) else (s, i, o)
-          | Repeat (ruStmt, e)  ->
-              let (s, i, o) = eval env (s, i, o) ruStmt in
-              let r = Expr.eval s e in
-              if r != 0 then (s, i ,o) else eval env (s, i, o) t
-          | Call (name, args) ->
-              let (arg_names, locals, body) = env#definition name in
-              let args = List.combine arg_names (List.map (Expr.eval s) args) in
-              let state = State.push_scope s (arg_names @ locals) in
-              let fun_env_w_args = List.fold_left (fun s (name, value) -> State.update name value s) state args in
-              let (new_s, i, o) = eval env (fun_env_w_args, i, o) body in
-              (State.drop_scope new_s s, i, o)
-                                
+        match t with
+            | Read x -> (match i with
+                | z :: i_rest -> (State.update x z s, i_rest, o)
+                | _           -> failwith "Input read fail")
+            | Write   e             -> (s, i, o @ [Expr.eval s e])
+            | Assign (x, e)         -> (State.update x (Expr.eval s e) s, i, o)
+            | Seq    (s1, s2) ->
+                let stmt = eval env (s, i, o) s1
+                in eval env stmt s2
+            | Skip            -> (s, i, o)
+            | If (e, thenStmt, elseStmt) ->
+                if (Expr.eval s e) != 0 then eval env (s, i, o) thenStmt else eval env (s, i, o) elseStmt
+            | While (e, wStmt)  ->
+                let r = Expr.eval s e in
+                if r != 0 then eval env (eval env (s, i, o) wStmt) (While (e, wStmt)) else (s, i, o)
+            | Repeat (ruStmt, e)  ->
+                let (s, i, o) = eval env (s, i, o) ruStmt in
+                let r = Expr.eval s e in
+                if r != 0 then (s, i ,o) else eval env (s, i, o) t
+            | Call (name, args) ->
+                let (arg_names, locals, body) = env#definition name in
+                let args = List.combine arg_names (List.map (Expr.eval s) args) in
+                let state = State.push_scope s (arg_names @ locals) in
+                let fun_env_w_args = List.fold_left (fun s (name, value) -> State.update name value s) state args in
+                let (new_s, i, o) = eval env (fun_env_w_args, i, o) body in
+                (State.drop_scope new_s s, i, o)
     (* Statement parser *)
-    ostap (                                      
+    ostap (
       line:
         "read" "(" x:IDENT ")"         {Read x}
         | "write" "(" e:!(Expr.parse) ")" {Write e}
@@ -210,14 +204,14 @@ module Definition =
     (* The type for a definition: name, argument list, local variables, body *)
     type t = string * (string list * string list * Stmt.t)
 
-    ostap (                                      
+    ostap (
       parse: "fun" name:IDENT "(" args:(IDENT)* ")" local:(%"local" (IDENT)*)? "{" body:!(Stmt.parse) "}"
-      {
-          let local = match local with
-          | Some x -> x
-          | _ -> [] in
-          name, (args, local, body)
-      }
+        {
+            let local = match local with
+            | Some x -> x
+            | _ -> [] in
+            name, (args, local, body)
+        }
     )
 
   end
@@ -225,17 +219,15 @@ module Definition =
 (* The top-level definitions *)
 
 (* The top-level syntax category is a pair of definition list and statement (program body) *)
-type t = Definition.t list * Stmt.t    
+type t = Definition.t list * Stmt.t
 
 (* Top-level evaluator
-
      eval : t -> int list -> int list
-
    Takes a program and its input stream, and returns the output stream
 *)
 let eval (defs, body) i =
   let module M = Map.Make (String) in
-  let m        = List.fold_left (fun m ((name, _) as def) -> M.add name def m) M.empty defs in  
+  let m        = List.fold_left (fun m ((name, _) as def) -> M.add name def m) M.empty defs in
   let _, _, o  = Stmt.eval (object method definition f = snd @@ M.find f m end) (State.empty, i, []) body in o
 
 (* Top-level parser *)
